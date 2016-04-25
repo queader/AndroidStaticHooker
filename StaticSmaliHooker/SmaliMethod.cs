@@ -92,6 +92,7 @@ namespace StaticSmaliHooker
             {
                 Instructions.Insert(index++, "invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
                 Instructions.Insert(index++, "move-result-object v1");
+                Instructions.Insert(index++, string.Format("check-cast v1, {0}", ReturnType));
             }
 
             //Instructions.Insert(index++, "#hooked");

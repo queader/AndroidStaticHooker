@@ -36,8 +36,13 @@ namespace StaticSmaliHooker
             else
                 throw new Exception("Not specified when to hook method");
 
-            if (split[1].Trim() == "static")
-                IsStatic = true;
+            if (split.Length >= 3)
+            {
+                if (split[1].Trim() == "static")
+                    IsStatic = true;
+                else if (split[1].Trim() == "nostatic")
+                    IsStatic = false;
+            }
 
             string signature = split[split.Length - 1].Trim();
 
@@ -64,29 +69,17 @@ namespace StaticSmaliHooker
 
         public bool IsMethodAdequate(SmaliMethod method)
         {
-            if (MethodName == "init")
+            if (method.MethodName != MethodName)
             {
-                if (method.IsConstructor)
-                {
-                    if (IsStatic.HasValue)
-                    {
-                        return method.IsStatic == IsStatic;
-                    }
-
-                    return true;
-                }
-
                 return false;
             }
-            else
-            {
-                if (method.MethodName != MethodName)
-                {
-                    return false;
-                }
 
-                return true;
+            if (IsStatic.HasValue)
+            {
+                return method.IsStatic == IsStatic;
             }
+
+            return true;
         }
     }
 }

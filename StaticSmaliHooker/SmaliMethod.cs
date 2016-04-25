@@ -19,6 +19,7 @@ namespace StaticSmaliHooker
         public bool IsStatic { get; private set; }
         public List<SmaliAnnotation> Annotations { get; private set; }
         public List<string> Instructions { get; private set; }
+        public int AllocatedRegisters { get; private set; }
 
         string prologueSource;
 
@@ -39,10 +40,47 @@ namespace StaticSmaliHooker
             return Program.Random.Next(0, 1000000).ToString();
         }
 
-        public void InjectAfterHookCode(MethodToHook hook, int index)
+        public void AddHookBefore(MethodToHook hook)
+        {
+            IsPatched = true;
+
+            int index = 0;
+
+            Instructions.Insert(index++, "new-instance v0, Lcom/xquadplaystatic/MethodHookParam;");
+            Instructions.Insert(index++, "invoke-direct {v0}, Lcom/xquadplaystatic/MethodHookParam;-><init>()V");
+
+            Instructions.Insert(index++,
+                string.Format("invoke-static {{v0}}, {0}->{1}(Lcom/xquadplaystatic/MethodHookParam;)V",
+                hook.Interceptor.ParentClass.ClassName,
+                hook.Interceptor.MethodName));
+
+            Instructions.Insert(index++, "iget-boolean v2, v1, Lcom/xquadplaystatic/MethodHookParam;->returnEarly:Z");
+            Instructions.Insert(index++, "if-eqz v2, :cond_normal_run");
+
+            //if we canceled executing method by calling setResult()
+            if (ReturnType == "V")
+            {
+                Instructions.Insert(index++, "return-void");
+            }
+            else
+            {
+                Instructions.Insert(index++, "invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                Instructions.Insert(index++, "move-result-object v1");
+                Instructions.Insert(index++, "return-object v1");
+            }
+
+            Instructions.Insert(index++, ":cond_normal_run");
+        }
+
+        public void InjectAfterHookCode(MethodToHook hook, ref int index, bool hasReturnValue)
         {
             Instructions.Insert(index++, "new-instance v0, Lcom/xquadplaystatic/MethodHookParam;");
             Instructions.Insert(index++, "invoke-direct {v0}, Lcom/xquadplaystatic/MethodHookParam;-><init>()V");
+
+            if (hasReturnValue)
+            {
+                Instructions.Insert(index++, "invoke-virtual {v0, v1}, Lcom/xquadplaystatic/MethodHookParam;->setResult(Ljava/lang/Object;)V");
+            }
 
             //Instructions.Add("invoke-static {v1}, Lcom/xquadplaystatic/StaticHooks;->after_getSystemProperty(Lcom/xquadplaystatic/MethodHookParam;)V");
             Instructions.Insert(index++,
@@ -50,7 +88,13 @@ namespace StaticSmaliHooker
                 hook.Interceptor.ParentClass.ClassName,
                 hook.Interceptor.MethodName));
 
-            Instructions.Insert(index++, "#hooked");
+            if (hasReturnValue)
+            {
+                Instructions.Insert(index++, "invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                Instructions.Insert(index++, "move-result-object v1");
+            }
+
+            //Instructions.Insert(index++, "#hooked");
         }
 
         public void AddHookAfter(MethodToHook hook)
@@ -59,27 +103,57 @@ namespace StaticSmaliHooker
 
             for (int n = 0; n < Instructions.Count; ++n)
             {
-                if (Instructions[n].StartsWith("return-void") && !Instructions[n - 1].StartsWith("#hooked"))
+                if (n >= 1 && Instructions[n - 1].StartsWith("#hooked"))
+                    continue;
+
+                string instr = Instructions[n];
+
+                if (instr.StartsWith("return-void"))
                 {
-                    InjectAfterHookCode(hook, n);
+                    int index = n;
+                    InjectAfterHookCode(hook, ref index, false);
+
+                    Instructions.Insert(index++, "#hooked");
+                }
+                if (instr.StartsWith("return "))
+                {
+                    int index = n;
+                    string returnValRegister = instr.Split(' ')[1];
+
+                    if (returnValRegister != "v1")
+                    {
+                        Instructions.Insert(index++, string.Format("move v1, {0}", returnValRegister));
+                    }
+
+                    InjectAfterHookCode(hook, ref index, false);
+
+                    if (returnValRegister != "v1")
+                    {
+                        Instructions.Insert(index++, string.Format("move {0}, v1", returnValRegister));
+                    }
+
+                    Instructions.Insert(index++, "#hooked");
+                }
+                if (instr.StartsWith("return-object"))
+                {
+                    int index = n;
+                    string returnValRegister = instr.Split(' ')[1];
+
+                    if (returnValRegister != "v1")
+                    {
+                        Instructions.Insert(index++, string.Format("move-object v1, {0}", returnValRegister));
+                    }
+
+                    InjectAfterHookCode(hook, ref index, true);
+
+                    if (returnValRegister != "v1")
+                    {
+                        Instructions.Insert(index++, string.Format("move-object {0}, v1", returnValRegister));
+                    }
+
+                    Instructions.Insert(index++, "#hooked");
                 }
             }
-
-            //string bottomHandlerID = ":hook_" + GenerateRandomHookIndex();
-
-            //Instructions.Add("#");
-            //Instructions.Add("####hook handler");
-            //Instructions.Add("#");
-            //Instructions.Add(bottomHandlerID);
-
-            //Instructions.Add("new-instance v1, Lcom/xquadplaystatic/MethodHookParam;");
-            //Instructions.Add("invoke-direct {v1}, Lcom/xquadplaystatic/MethodHookParam;-><init>()V");
-
-            ////Instructions.Add("invoke-static {v1}, Lcom/xquadplaystatic/StaticHooks;->after_getSystemProperty(Lcom/xquadplaystatic/MethodHookParam;)V");
-            //Instructions.Add(
-            //    string.Format("invoke-static {{v1}}, {0}->{1}(Lcom/xquadplaystatic/MethodHookParam;)V",
-            //    hook.Interceptor.ParentClass.ClassName,
-            //    hook.Interceptor.MethodName));
         }
 
         public void PrintInstructions()

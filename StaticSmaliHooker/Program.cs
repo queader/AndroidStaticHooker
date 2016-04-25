@@ -22,6 +22,7 @@ namespace StaticSmaliHooker
             public List<string> BaksmailedDexPaths { get; set; }
             public Dictionary<string, string> BaksmailedDexNames { get; set; }
             public List<string> CompiledDexPaths { get; set; }
+            public bool OnlyCopyDex { get; set; }
 
             public UnpackedApp()
             {
@@ -37,12 +38,27 @@ namespace StaticSmaliHooker
 
         static void Main(string[] args)
         {
-            Console.WriteLine("Usage <app1> <app2> ...");
+            Console.WriteLine("Usage <app1> [-dex-only] <app2> ...");
+
+            bool onlyCopyDexFlag = false;
 
             foreach (var arg in args)
             {
-                string lib = Path.GetFullPath(arg);
-                unpackedAppList.Add(new UnpackedApp { OriginalJarPath = lib });
+                if (arg == "-dex-only")
+                {
+                    onlyCopyDexFlag = true;
+                }
+                else
+                {
+                    string lib = Path.GetFullPath(arg);
+                    unpackedAppList.Add(new UnpackedApp
+                    {
+                        OriginalJarPath = lib,
+                        OnlyCopyDex = onlyCopyDexFlag,
+                    });
+
+                    onlyCopyDexFlag = false;
+                }
             }
 
             Console.WriteLine("\nCleaning...");
@@ -151,14 +167,14 @@ namespace StaticSmaliHooker
                 {
                     Console.WriteLine("      Found Adequate Method: {0}", method);
 
-                    //Console.WriteLine("");
-                    //Console.WriteLine("Method Body:");
-                    //Console.WriteLine(method.OriginalSource);
-                    //Console.WriteLine("");
-
                     if (hook.HookAfter)
                     {
                         method.AddHookAfter(hook);
+                    }
+
+                    if (hook.HookBefore)
+                    {
+                        method.AddHookBefore(hook);
                     }
 
                     method.PrintInstructions();
@@ -216,6 +232,12 @@ namespace StaticSmaliHooker
 
         static void CopyToMerge(UnpackedApp app)
         {
+            if (app.OnlyCopyDex)
+            {
+                Console.WriteLine("   Skipping File Merge for: {0} because -dex-only flag is set", app.UnpackedPath);
+                return;
+            }
+
             string targetPath = string.Format(@"TempSmali\Merged\");
             targetPath = Path.GetFullPath(targetPath);
 

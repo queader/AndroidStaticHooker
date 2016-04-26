@@ -19,6 +19,7 @@ namespace StaticSmaliHooker
         public bool IsStatic { get; private set; }
         public List<SmaliAnnotation> Annotations { get; private set; }
         public List<string> Instructions { get; private set; }
+        public int OriginalAllocatedRegisters { get; private set; }
         public int AllocatedRegisters { get; private set; }
 
         string prologueSource;
@@ -40,6 +41,84 @@ namespace StaticSmaliHooker
             return Program.Random.Next(0, 1000000).ToString();
         }
 
+        public void PackPrimitiveValue(ref int index, string primitiveType, string register)
+        {
+            switch (primitiveType)
+            {
+                case "I":
+                    {
+                        Instructions.Insert(index++,
+                            string.Format("invoke-static {{{0}}}, Ljava/lang/Integer;->valueOf(I)Ljava/lang/Integer;", register));
+                        Instructions.Insert(index++,
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
+                case "Z":
+                    {
+                        Instructions.Insert(index++,
+                            string.Format("invoke-static {{{0}}}, Ljava/lang/Boolean;->valueOf(Z)Ljava/lang/Boolean;", register));
+                        Instructions.Insert(index++,
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
+                case "B":
+                    {
+                        Instructions.Insert(index++,
+                            string.Format("invoke-static {{{0}}}, Ljava/lang/Byte;->valueOf(B)Ljava/lang/Byte;", register));
+                        Instructions.Insert(index++,
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
+            }
+
+            throw new Exception("Unsupported primitive value: " + primitiveType);
+        }
+
+        public void UnpackPrimitiveValue(ref int index, string primitiveType, string register)
+        {
+            switch (primitiveType)
+            {
+                case "I":
+                    {
+                        Instructions.Insert(index++,
+                            string.Format("check-cast {0}, Ljava/lang/Integer;", register));
+                        Instructions.Insert(index++,
+                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Integer;->intValue()I", register));
+                        Instructions.Insert(index++,
+                            string.Format("move-result {0}", register));
+
+                        return;
+                    }
+                case "Z":
+                    {
+                        Instructions.Insert(index++,
+                            string.Format("check-cast {0}, Ljava/lang/Boolean;", register));
+                        Instructions.Insert(index++,
+                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Boolean;->booleanValue()Z", register));
+                        Instructions.Insert(index++,
+                            string.Format("move-result {0}", register));
+
+                        return;
+                    }
+                case "B":
+                    {
+                        Instructions.Insert(index++,
+                            string.Format("check-cast {0}, Ljava/lang/Byte;", register));
+                        Instructions.Insert(index++,
+                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Byte;->byteValue()B", register));
+                        Instructions.Insert(index++,
+                            string.Format("move-result {0}", register));
+
+                        return;
+                    }
+            }
+
+            throw new Exception("Unsupported primitive value: " + primitiveType);
+        }
+
         public void AddHookBefore(MethodToHook hook)
         {
             IsPatched = true;
@@ -54,20 +133,27 @@ namespace StaticSmaliHooker
                 hook.Interceptor.ParentClass.ClassName,
                 hook.Interceptor.MethodName));
 
-            Instructions.Insert(index++, "iget-boolean v2, v1, Lcom/xquadplaystatic/MethodHookParam;->returnEarly:Z");
-            Instructions.Insert(index++, "if-eqz v2, :cond_normal_run");
+            Instructions.Insert(index++, "iget-boolean v1, v0, Lcom/xquadplaystatic/MethodHookParam;->returnEarly:Z");
+            Instructions.Insert(index++, "if-eqz v1, :cond_normal_run");
 
             //if we canceled executing method by calling setResult()
             if (ReturnType == "V")
             {
                 Instructions.Insert(index++, "return-void");
             }
-            else
+            else if (ReturnType.StartsWith("L"))
             {
                 Instructions.Insert(index++, "invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
                 Instructions.Insert(index++, "move-result-object v1");
                 Instructions.Insert(index++, string.Format("check-cast v1, {0}", ReturnType));
                 Instructions.Insert(index++, "return-object v1");
+            }
+            else
+            {
+                Instructions.Insert(index++, "invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                Instructions.Insert(index++, "move-result-object v1");
+                UnpackPrimitiveValue(ref index, ReturnType, "v1");
+                Instructions.Insert(index++, "return v1");
             }
 
             Instructions.Insert(index++, ":cond_normal_run");
@@ -83,7 +169,6 @@ namespace StaticSmaliHooker
                 Instructions.Insert(index++, "invoke-virtual {v0, v1}, Lcom/xquadplaystatic/MethodHookParam;->setResult(Ljava/lang/Object;)V");
             }
 
-            //Instructions.Add("invoke-static {v1}, Lcom/xquadplaystatic/StaticHooks;->after_getSystemProperty(Lcom/xquadplaystatic/MethodHookParam;)V");
             Instructions.Insert(index++,
                 string.Format("invoke-static {{v0}}, {0}->{1}(Lcom/xquadplaystatic/MethodHookParam;)V",
                 hook.Interceptor.ParentClass.ClassName,
@@ -95,8 +180,6 @@ namespace StaticSmaliHooker
                 Instructions.Insert(index++, "move-result-object v1");
                 Instructions.Insert(index++, string.Format("check-cast v1, {0}", ReturnType));
             }
-
-            //Instructions.Insert(index++, "#hooked");
         }
 
         public void AddHookAfter(MethodToHook hook)
@@ -125,12 +208,14 @@ namespace StaticSmaliHooker
                     if (returnValRegister != "v1")
                     {
                         Instructions.Insert(index++, string.Format("move v1, {0}", returnValRegister));
+                        PackPrimitiveValue(ref index, ReturnType, "v1");
                     }
 
-                    InjectAfterHookCode(hook, ref index, false);
+                    InjectAfterHookCode(hook, ref index, true);
 
                     if (returnValRegister != "v1")
                     {
+                        UnpackPrimitiveValue(ref index, ReturnType, "v1");
                         Instructions.Insert(index++, string.Format("move {0}, v1", returnValRegister));
                     }
 
@@ -173,7 +258,13 @@ namespace StaticSmaliHooker
         public string GetModifiedCode()
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine(prologueSource);
+
+            string modifiedPrologue = prologueSource
+                .Replace(
+                string.Format(".registers {0}", OriginalAllocatedRegisters),
+                string.Format(".registers {0}", OriginalAllocatedRegisters + 5));
+
+            sb.AppendLine(modifiedPrologue);
 
             foreach (var ins in Instructions)
             {
@@ -223,6 +314,13 @@ namespace StaticSmaliHooker
                         if (trimmed.StartsWith(".prologue"))
                         {
                             prologueFinished = true;
+                        }
+
+                        if (trimmed.StartsWith(".registers"))
+                        {
+                            int regCount = int.Parse(trimmed.Split(' ')[1]);
+                            AllocatedRegisters = regCount;
+                            OriginalAllocatedRegisters = AllocatedRegisters;
                         }
                     }
                     else

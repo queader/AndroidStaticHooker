@@ -177,7 +177,7 @@ namespace StaticSmaliHooker
                         method.AddHookBefore(hook);
                     }
 
-                    method.PrintInstructions();
+                    //method.PrintInstructions();
 
                     dirtyClasses.Add(targetClass);
                 }

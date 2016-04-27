@@ -21,6 +21,7 @@ namespace StaticSmaliHooker
         public List<string> Instructions { get; private set; }
         public int OriginalAllocatedRegisters { get; private set; }
         public int AllocatedRegisters { get; private set; }
+        public string RawParameterLine { get; private set; }
 
         string prologueSource;
 
@@ -33,7 +34,7 @@ namespace StaticSmaliHooker
 
         public override string ToString()
         {
-            return string.Format("{0} : {1}", MethodName, ReturnType);
+            return string.Format("{0} ({1}) : {2}", MethodName, RawParameterLine, ReturnType);
         }
 
         string GenerateRandomHookIndex()
@@ -259,6 +260,8 @@ namespace StaticSmaliHooker
         {
             StringBuilder sb = new StringBuilder();
 
+            sb.AppendLine("#modified");
+
             string modifiedPrologue = prologueSource
                 .Replace(
                 string.Format(".registers {0}", OriginalAllocatedRegisters),
@@ -272,6 +275,8 @@ namespace StaticSmaliHooker
             }
 
             sb.AppendLine(".end method");
+
+            sb.AppendLine("#modified");
 
             return sb.ToString();
         }
@@ -387,6 +392,7 @@ namespace StaticSmaliHooker
             int lastParenthesis = header.IndexOf(')');
 
             ReturnType = header.Substring(lastParenthesis + 1, header.Length - (lastParenthesis + 1));
+            RawParameterLine = header.Substring(firstParenthesis + 1, lastParenthesis - (firstParenthesis + 1));
         }
     }
 }

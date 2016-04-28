@@ -137,7 +137,12 @@ namespace StaticSmaliHooker
             }
 
             Console.WriteLine("\nPackaging...");
-            CreateFinalPackage("finishedpkg.jar");
+
+            string finalName = string.Format("{0}-hooked{1}",
+                Path.GetFileNameWithoutExtension(unpackedAppList[0].OriginalJarPath),
+                Path.GetExtension(unpackedAppList[0].OriginalJarPath));
+
+            CreateFinalPackage(finalName);
 
         }
 

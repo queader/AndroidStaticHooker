@@ -53,7 +53,7 @@ namespace StaticSmaliHooker
                 sb.Length = sb.Length - 2;
             }
 
-            return string.Format("{0} ({1}) : {2}", MethodName, sb.ToString(), ReturnType);
+            return string.Format("{0} ({1}) : {2}", MethodName, sb, ReturnType);
         }
 
         public void AddHookBefore(MethodToHook hook)
@@ -877,6 +877,8 @@ namespace StaticSmaliHooker
             var reader = new StringReader(rawParameters);
 
             bool processingObjectName = false;
+            bool previousCharArrayBracket = false;
+
             var objectNameSb = new StringBuilder();
 
             int nextChar;
@@ -887,7 +889,27 @@ namespace StaticSmaliHooker
 
                 if (processingObjectName)
                 {
-                    if (c == ';')
+                    if (previousCharArrayBracket)
+                    {
+                        if (c == '[')
+                        {
+                            previousCharArrayBracket = true;
+                        }
+                        else if (!IsObjectTypeTrueObject(c.ToString()))
+                        {
+                            processingObjectName = false;
+                            var name = objectNameSb.ToString();
+                            objectNameSb.Clear();
+                            ParameterTypes.Add(name);
+
+                            previousCharArrayBracket = false;
+                        }
+                        else
+                        {
+                            previousCharArrayBracket = false;
+                        }
+                    }
+                    else if (c == ';')
                     {
                         processingObjectName = false;
                         var name = objectNameSb.ToString();
@@ -897,9 +919,15 @@ namespace StaticSmaliHooker
                 }
                 else
                 {
-                    if (IsObjectTypeTrueObject(c.ToString()))
+                    if (c == '[')
                     {
                         processingObjectName = true;
+                        previousCharArrayBracket = true;
+                    }
+                    else if (IsObjectTypeTrueObject(c.ToString()))
+                    {
+                        processingObjectName = true;
+                        previousCharArrayBracket = false;
                     }
                     else
                     {

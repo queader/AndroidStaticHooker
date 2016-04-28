@@ -19,6 +19,7 @@ namespace StaticSmaliHooker
         public bool IsStatic { get; private set; }
         public List<SmaliAnnotation> Annotations { get; private set; }
         public List<string> Instructions { get; private set; }
+        public List<string> ParameterTypes { get; private set; }
         public int OriginalAllocatedRegisters { get; private set; }
         public int AllocatedRegisters { get; private set; }
         public string RawParameterLine { get; private set; }
@@ -30,16 +31,61 @@ namespace StaticSmaliHooker
             ParentClass = parentClass;
             Annotations = new List<SmaliAnnotation>();
             Instructions = new List<string>();
+            ParameterTypes = new List<string>();
         }
 
         public override string ToString()
         {
-            return string.Format("{0} ({1}) : {2}", MethodName, RawParameterLine, ReturnType);
+            var sb = new StringBuilder();
+
+            if (ParameterTypes.Count > 0)
+            {
+                foreach (var el in ParameterTypes)
+                {
+                    sb.Append(el);
+                    sb.Append(", ");
+                }
+                sb.Length = sb.Length - 2;
+            }
+
+            return string.Format("{0} ({1}) : {2}", MethodName, sb.ToString(), ReturnType);
         }
 
         string GenerateRandomHookIndex()
         {
             return Program.Random.Next(0, 1000000).ToString();
+        }
+
+        string GetMirroredParameterRegister(int n)
+        {
+            return "v" + ((OriginalAllocatedRegisters - ParameterTypes.Count) + 3 + n);
+        }
+
+        void AddParameterMirroringCode(ref int index)
+        {
+            if (IsStatic)
+            {
+                for (int n = 0; n < ParameterTypes.Count; ++n)
+                {
+                    string currParamRegister = "p" + n;
+
+                    Instructions.Insert(index++,
+                        string.Format("move-object {0}, {1}", GetMirroredParameterRegister(n), currParamRegister));
+                }
+            }
+            else
+            {
+                Instructions.Insert(index++,
+                        string.Format("move-object {0}, p0", GetMirroredParameterRegister(0)));
+
+                for (int n = 1; n <= ParameterTypes.Count; ++n)
+                {
+                    string currParamRegister = "p" + n;
+
+                    Instructions.Insert(index++,
+                        string.Format("move-object {0}, {1}", GetMirroredParameterRegister(n), currParamRegister));
+                }
+            }
         }
 
         public void PackPrimitiveValue(ref int index, string primitiveType, string register)
@@ -129,10 +175,63 @@ namespace StaticSmaliHooker
             Instructions.Insert(index++, "new-instance v0, Lcom/xquadplaystatic/MethodHookParam;");
             Instructions.Insert(index++, "invoke-direct {v0}, Lcom/xquadplaystatic/MethodHookParam;-><init>()V");
 
+            if (!IsStatic)
+            {
+                Instructions.Insert(index++, "iput-object p0, v0, Lcom/xquadplaystatic/MethodHookParam;->thisObject:Ljava/lang/Object;");
+            }
+
+            if (ParameterTypes.Count > 0)
+            {
+                Instructions.Insert(index++, "const v1, 0x" + ParameterTypes.Count.ToString("x"));
+                Instructions.Insert(index++, "new-array v1, v1, [Ljava/lang/Object;");
+                Instructions.Insert(index++, "iput-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+
+                for (int n = 0; n < ParameterTypes.Count; ++n)
+                {
+                    string paramType = ParameterTypes[n];
+                    string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
+
+                    if (!IsObjectTypeTrueObject(paramType))
+                    {
+                        PackPrimitiveValue(ref index, paramType, paramRegister);
+                    }
+
+                    Instructions.Insert(index++, "iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                    Instructions.Insert(index++, "const v2, 0x" + n.ToString("x"));
+                    Instructions.Insert(index++, string.Format("aput-object {0}, v1, v2", paramRegister));
+                }
+            }
+
             Instructions.Insert(index++,
                 string.Format("invoke-static {{v0}}, {0}->{1}(Lcom/xquadplaystatic/MethodHookParam;)V",
                 hook.Interceptor.ParentClass.ClassName,
                 hook.Interceptor.MethodName));
+
+            if (ParameterTypes.Count > 0)
+            {
+                for (int n = 0; n < ParameterTypes.Count; ++n)
+                {
+                    string paramType = ParameterTypes[n];
+                    string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
+
+                    Instructions.Insert(index++, "iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                    Instructions.Insert(index++, "const v2, 0x" + n.ToString("x"));
+                    Instructions.Insert(index++, string.Format("aget-object {0}, v1, v2", paramRegister));
+                }
+
+                AddParameterMirroringCode(ref index);
+
+                for (int n = 0; n < ParameterTypes.Count; ++n)
+                {
+                    string paramType = ParameterTypes[n];
+                    string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
+
+                    if (!IsObjectTypeTrueObject(paramType))
+                    {
+                        UnpackPrimitiveValue(ref index, paramType, paramRegister);
+                    }
+                }
+            }
 
             Instructions.Insert(index++, "iget-boolean v1, v0, Lcom/xquadplaystatic/MethodHookParam;->returnEarly:Z");
             Instructions.Insert(index++, "if-eqz v1, :cond_normal_run");
@@ -142,7 +241,7 @@ namespace StaticSmaliHooker
             {
                 Instructions.Insert(index++, "return-void");
             }
-            else if (ReturnType.StartsWith("L"))
+            else if (IsObjectTypeTrueObject(ReturnType))
             {
                 Instructions.Insert(index++, "invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
                 Instructions.Insert(index++, "move-result-object v1");
@@ -158,6 +257,11 @@ namespace StaticSmaliHooker
             }
 
             Instructions.Insert(index++, ":cond_normal_run");
+        }
+
+        bool IsObjectTypeTrueObject(string type)
+        {
+            return type.StartsWith("L") || type.StartsWith("[");
         }
 
         public void InjectAfterHookCode(MethodToHook hook, ref int index, bool hasReturnValue)
@@ -256,16 +360,25 @@ namespace StaticSmaliHooker
             Console.WriteLine();
         }
 
+        bool calledAlready;
+
         public string GetModifiedCode()
         {
-            StringBuilder sb = new StringBuilder();
+            //if (calledAlready)
+            //    throw new Exception("Can only be called once!");
+            //calledAlready = true;
 
+            //AddParameterMirroringCode();
+
+            StringBuilder sb = new StringBuilder();
             sb.AppendLine("#modified");
+
+            int extendedRegisters = OriginalAllocatedRegisters + 4 + ParameterTypes.Count;
 
             string modifiedPrologue = prologueSource
                 .Replace(
                 string.Format(".registers {0}", OriginalAllocatedRegisters),
-                string.Format(".registers {0}", OriginalAllocatedRegisters + 5));
+                string.Format(".registers {0}", extendedRegisters));
 
             sb.AppendLine(modifiedPrologue);
 
@@ -275,7 +388,6 @@ namespace StaticSmaliHooker
             }
 
             sb.AppendLine(".end method");
-
             sb.AppendLine("#modified");
 
             return sb.ToString();
@@ -393,6 +505,47 @@ namespace StaticSmaliHooker
 
             ReturnType = header.Substring(lastParenthesis + 1, header.Length - (lastParenthesis + 1));
             RawParameterLine = header.Substring(firstParenthesis + 1, lastParenthesis - (firstParenthesis + 1));
+
+            ParseParameterLine(RawParameterLine);
+        }
+
+        void ParseParameterLine(string rawParameters)
+        {
+            var reader = new StringReader(rawParameters);
+
+            bool processingObjectName = false;
+            var objectNameSb = new StringBuilder();
+
+            int nextChar;
+            while ((nextChar = reader.Read()) != -1)
+            {
+                char c = (char)nextChar;
+                objectNameSb.Append(c);
+
+                if (processingObjectName)
+                {
+                    if (c == ';')
+                    {
+                        processingObjectName = false;
+                        var name = objectNameSb.ToString();
+                        objectNameSb.Clear();
+                        ParameterTypes.Add(name);
+                    }
+                }
+                else
+                {
+                    if (IsObjectTypeTrueObject(c.ToString()))
+                    {
+                        processingObjectName = true;
+                    }
+                    else
+                    {
+                        var name = objectNameSb.ToString();
+                        objectNameSb.Clear();
+                        ParameterTypes.Add(name);
+                    }
+                }
+            }
         }
     }
 }

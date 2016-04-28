@@ -17,6 +17,7 @@ namespace StaticSmaliHooker
         public string ReturnType { get; private set; }
         public bool IsConstructor { get; private set; }
         public bool IsStatic { get; private set; }
+        public bool IsPrivate { get; private set; }
         public List<SmaliAnnotation> Annotations { get; private set; }
         public List<string> Instructions { get; private set; }
         public List<string> ParameterTypes { get; private set; }
@@ -102,7 +103,7 @@ namespace StaticSmaliHooker
                         if (!IsObjectTypeTrueObject(paramType))
                             PackPrimitiveValue(sb, paramType, paramRegister);
 
-                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
                         sb.AppendLine("const v2, 0x" + n.ToString("x"));
                         sb.AppendLine(string.Format("aput-object {0}, v1, v2", paramRegister));
                     }
@@ -120,12 +121,14 @@ namespace StaticSmaliHooker
                         string paramType = ParameterTypes[n];
                         string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
 
-                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
                         sb.AppendLine("const v2, 0x" + n.ToString("x"));
                         sb.AppendLine(string.Format("aget-object {0}, v1, v2", paramRegister));
 
                         if (!IsObjectTypeTrueObject(paramType))
                             UnpackPrimitiveValue(sb, paramType, paramRegister);
+                        else
+                            sb.AppendLine(string.Format("check-cast {0}, {1}", paramRegister, paramType));
                     }
                 }
 
@@ -160,7 +163,7 @@ namespace StaticSmaliHooker
                 if (ParameterTypes.Count > 1)
                 {
                     sb.AppendLine(
-                        string.Format("invoke-static/range {{p0..{4}}}, {0}->{1}({2}){3}",
+                        string.Format("invoke-static/range {{p0 .. {4}}}, {0}->{1}({2}){3}",
                         ParentClass.ClassName,
                         GetHookedMethodName(),
                         RawParameterLine,
@@ -188,24 +191,28 @@ namespace StaticSmaliHooker
             }
             else
             {
+                string invokeType = (IsPrivate || IsConstructor) ? "invoke-direct" : "invoke-virtual";
+
                 if (ParameterTypes.Count == 0)
                 {
                     sb.AppendLine(
-                        string.Format("invoke-virtual {{p0}}, {0}->{1}({2}){3}",
-                        ParentClass.ClassName,
-                        GetHookedMethodName(),
-                        RawParameterLine,
-                        ReturnType));
-                }
-                else
-                {
-                    sb.AppendLine(
-                        string.Format("invoke-virtual/range {{p0..{4}}}, {0}->{1}({2}){3}",
+                        string.Format("{4} {{p0}}, {0}->{1}({2}){3}",
                         ParentClass.ClassName,
                         GetHookedMethodName(),
                         RawParameterLine,
                         ReturnType,
-                        "p" + (ParameterTypes.Count)));
+                        invokeType));
+                }
+                else
+                {
+                    sb.AppendLine(
+                        string.Format("{5}/range {{p0 .. {4}}}, {0}->{1}({2}){3}",
+                        ParentClass.ClassName,
+                        GetHookedMethodName(),
+                        RawParameterLine,
+                        ReturnType,
+                        "p" + (ParameterTypes.Count),
+                        invokeType));
                 }
             }
             sb.AppendLine();
@@ -242,7 +249,12 @@ namespace StaticSmaliHooker
                     sb.AppendLine("iput-object p0, v0, Lcom/xquadplaystatic/MethodHookParam;->thisObject:Ljava/lang/Object;");
 
                 if (ReturnType != "V")
+                {
+                    if (!IsObjectTypeTrueObject(ReturnType))
+                        PackPrimitiveValue(sb, ReturnType, "v1");
+
                     sb.AppendLine("invoke-virtual {v0, v1}, Lcom/xquadplaystatic/MethodHookParam;->setResult(Ljava/lang/Object;)V");
+                }
 
                 if (ParameterTypes.Count > 0)
                 {
@@ -258,7 +270,7 @@ namespace StaticSmaliHooker
                         if (!IsObjectTypeTrueObject(paramType))
                             PackPrimitiveValue(sb, paramType, paramRegister);
 
-                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
                         sb.AppendLine("const v2, 0x" + n.ToString("x"));
                         sb.AppendLine(string.Format("aput-object {0}, v1, v2", paramRegister));
                     }
@@ -753,12 +765,6 @@ namespace StaticSmaliHooker
 
                     if (!prologueFinished)
                     {
-                        if (trimmed.StartsWith(".annotation"))
-                        {
-                            string annotationBody = GetBodyToEndTag(reader, nextLine);
-                            CreateAnnotation(annotationBody);
-                        }
-
                         if (trimmed.StartsWith(".prologue"))
                         {
                             prologueFinished = true;
@@ -781,6 +787,29 @@ namespace StaticSmaliHooker
                 }
 
                 prologueSource = prologueStringBuilder.ToString();
+
+                ParseAnnotations(prologueSource);
+            }
+        }
+
+        void ParseAnnotations(string prologue)
+        {
+            using (var reader = new StringReader(prologue))
+            {
+                string nextLine = null;
+                while ((nextLine = reader.ReadLine()) != null)
+                {
+                    if (string.IsNullOrEmpty(nextLine))
+                        continue;
+
+                    string trimmed = nextLine.Trim();
+
+                    if (trimmed.StartsWith(".annotation"))
+                    {
+                        string annotationBody = GetBodyToEndTag(reader, nextLine);
+                        CreateAnnotation(annotationBody);
+                    }
+                }
             }
         }
 
@@ -825,6 +854,7 @@ namespace StaticSmaliHooker
 
             IsStatic = header.Contains(" static "); //whitespaces so we get no fake positives from method name
             IsConstructor = header.Contains(" constructor ");
+            IsPrivate = header.Contains(" private ");
 
             int firstParenthesis = header.IndexOf('(');
 

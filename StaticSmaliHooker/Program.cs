@@ -36,6 +36,8 @@ namespace StaticSmaliHooker
         static List<MethodToHook> methodsToHook = new List<MethodToHook>();
         static HashSet<SmaliClass> dirtyClasses = new HashSet<SmaliClass>();
 
+        static bool singleDex;
+
         static void Main(string[] args)
         {
             Console.WriteLine("Usage <app1> [-dex-only] <app2> ...");
@@ -47,6 +49,10 @@ namespace StaticSmaliHooker
                 if (arg == "-dex-only")
                 {
                     onlyCopyDexFlag = true;
+                }
+                else if (arg == "-single-dex")
+                {
+                    singleDex = true;
                 }
                 else
                 {
@@ -89,7 +95,13 @@ namespace StaticSmaliHooker
                 foreach (string baksmailedDex in app.BaksmailedDexPaths)
                 {
                     ParseClasses(baksmailedDex);
+
+                    if (singleDex)
+                        break;
                 }
+
+                if (singleDex)
+                    break;
             }
 
             Console.WriteLine("\nHooking...");
@@ -117,7 +129,13 @@ namespace StaticSmaliHooker
                 {
                     RunSmali(app, baksmailedDex, dexindex);
                     ++dexindex;
+
+                    if (singleDex)
+                        break;
                 }
+
+                if (singleDex)
+                    break;
             }
 
             Console.WriteLine("\nMerging...");
@@ -348,6 +366,10 @@ namespace StaticSmaliHooker
             string jarName = Path.GetFileNameWithoutExtension(app.OriginalJarPath);
             string dexName = Path.GetFileNameWithoutExtension(dexPath);
             string targetPath = string.Format(@"TempSmali\Baksmalied\{0}\{1}\", jarName, dexName);
+
+            if (singleDex)
+                targetPath = string.Format(@"TempSmali\Baksmalied\SingleDex\");
+
             targetPath = Path.GetFullPath(targetPath);
 
             Console.WriteLine("   Baksmaling: {0} to: {1}", dexPath, targetPath);

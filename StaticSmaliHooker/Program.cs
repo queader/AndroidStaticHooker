@@ -276,8 +276,13 @@ namespace StaticSmaliHooker
         {
             var app = unpackedAppList[0];
             string jarName = Path.GetFileNameWithoutExtension(app.OriginalJarPath);
+
             string targetPath = string.Format(@"TempSmali\Unpacked\{0}\smali{1}\",
                 jarName, index > 1 ? "_classes" + index : "");
+
+            if (singleDex)
+                targetPath = string.Format(@"TempSmali\Unpacked\{0}\smali\", jarName);
+
             targetPath = Path.GetFullPath(targetPath);
 
             Console.WriteLine("   Merging Smali Code: {0} to: {1}", smaliDir, targetPath);

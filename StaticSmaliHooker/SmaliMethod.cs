@@ -23,7 +23,7 @@ namespace StaticSmaliHooker
         public List<string> Instructions { get; private set; }
         public List<string> ParameterTypes { get; private set; }
         public int OriginalAllocatedRegisters { get; private set; }
-        public int AllocatedRegisters { get; private set; }
+        public int OriginalAllocatedLocals { get; private set; }
         public string RawParameterLine { get; private set; }
 
         public string OriginalHeaderLine { get; private set; }
@@ -77,8 +77,11 @@ namespace StaticSmaliHooker
 
             string modifiedPrologue = prologueSource
                 .Replace(
-                string.Format(".registers {0}", OriginalAllocatedRegisters),
-                string.Format(".registers {0}", extendedRegisters));
+                    string.Format(".registers {0}", OriginalAllocatedRegisters),
+                    string.Format(".registers {0}", extendedRegisters))
+                .Replace(
+                    string.Format(".locals {0}", OriginalAllocatedLocals),
+                    string.Format(".locals {0}", 4));
 
             sb.AppendLine(modifiedPrologue);
 
@@ -192,7 +195,7 @@ namespace StaticSmaliHooker
             }
             else
             {
-                string invokeType = (IsPrivate || IsConstructor || IsFinal) ? "invoke-direct" : "invoke-virtual";
+                string invokeType = (IsPrivate || IsConstructor) ? "invoke-direct" : "invoke-virtual";
 
                 if (ParameterTypes.Count == 0)
                 {
@@ -774,8 +777,12 @@ namespace StaticSmaliHooker
                         if (trimmed.StartsWith(".registers"))
                         {
                             int regCount = int.Parse(trimmed.Split(' ')[1]);
-                            AllocatedRegisters = regCount;
-                            OriginalAllocatedRegisters = AllocatedRegisters;
+                            OriginalAllocatedRegisters = regCount;
+                        }
+                        if (trimmed.StartsWith(".locals"))
+                        {
+                            int regCount = int.Parse(trimmed.Split(' ')[1]);
+                            OriginalAllocatedLocals = regCount;
                         }
                     }
                     else

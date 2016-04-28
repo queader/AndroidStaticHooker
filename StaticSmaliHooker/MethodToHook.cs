@@ -17,6 +17,7 @@ namespace StaticSmaliHooker
         public bool HookAfter { get; private set; }
         public bool? IsStatic { get; private set; }
         public string MethodName { get; private set; }
+        public bool IgnoreArgs { get; private set; }
 
         public MethodToHook(SmaliAnnotation annot, SmaliMethod interceptor)
         {

@@ -18,6 +18,7 @@ namespace StaticSmaliHooker
         public bool IsConstructor { get; private set; }
         public bool IsStatic { get; private set; }
         public bool IsPrivate { get; private set; }
+        public bool IsFinal { get; private set; }
         public List<SmaliAnnotation> Annotations { get; private set; }
         public List<string> Instructions { get; private set; }
         public List<string> ParameterTypes { get; private set; }
@@ -191,7 +192,7 @@ namespace StaticSmaliHooker
             }
             else
             {
-                string invokeType = (IsPrivate || IsConstructor) ? "invoke-direct" : "invoke-virtual";
+                string invokeType = (IsPrivate || IsConstructor || IsFinal) ? "invoke-direct" : "invoke-virtual";
 
                 if (ParameterTypes.Count == 0)
                 {
@@ -855,6 +856,7 @@ namespace StaticSmaliHooker
             IsStatic = header.Contains(" static "); //whitespaces so we get no fake positives from method name
             IsConstructor = header.Contains(" constructor ");
             IsPrivate = header.Contains(" private ");
+            IsFinal = header.Contains(" final ");
 
             int firstParenthesis = header.IndexOf('(');
 

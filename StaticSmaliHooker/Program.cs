@@ -77,16 +77,16 @@ namespace StaticSmaliHooker
             foreach (var app in unpackedAppList)
                 UnpackJar(app);
 
-            Console.WriteLine("\nBaksmaling...");
-            Directory.CreateDirectory(@"TempSmali\Baksmalied");
+            //Console.WriteLine("\nBaksmaling...");
+            //Directory.CreateDirectory(@"TempSmali\Baksmalied");
 
-            foreach (var app in unpackedAppList)
-            {
-                foreach (string dexFile in Directory.EnumerateFiles(app.UnpackedPath, "*.dex"))
-                {
-                    RunBaksmali(app, dexFile);
-                }
-            }
+            //foreach (var app in unpackedAppList)
+            //{
+            //    foreach (string dexFile in Directory.EnumerateFiles(app.UnpackedPath, "*.dex"))
+            //    {
+            //        RunBaksmali(app, dexFile);
+            //    }
+            //}
 
             Console.WriteLine("\nParsing...");
 
@@ -95,13 +95,7 @@ namespace StaticSmaliHooker
                 foreach (string baksmailedDex in app.BaksmailedDexPaths)
                 {
                     ParseClasses(baksmailedDex);
-
-                    if (singleDex)
-                        break;
                 }
-
-                if (singleDex)
-                    break;
             }
 
             Console.WriteLine("\nHooking...");
@@ -118,39 +112,44 @@ namespace StaticSmaliHooker
                 GenerateCodeForDirtyClass(dirty);
             }
 
-            Console.WriteLine("\nSmaling...");
-            Directory.CreateDirectory(@"TempSmali\Smalied");
+            //Console.WriteLine("\nSmaling...");
+            //Directory.CreateDirectory(@"TempSmali\Smalied");
 
-            int dexindex = 1;
+            //int dexindex = 1;
 
-            foreach (var app in unpackedAppList)
-            {
-                foreach (string baksmailedDex in app.BaksmailedDexPaths)
-                {
-                    RunSmali(app, baksmailedDex, dexindex);
-                    ++dexindex;
+            //foreach (var app in unpackedAppList)
+            //{
+            //    foreach (string baksmailedDex in app.BaksmailedDexPaths)
+            //    {
+            //        RunSmali(app, baksmailedDex, dexindex);
+            //        ++dexindex;
 
-                    if (singleDex)
-                        break;
-                }
+            //        if (singleDex)
+            //            break;
+            //    }
 
-                if (singleDex)
-                    break;
-            }
+            //    if (singleDex)
+            //        break;
+            //}
 
             Console.WriteLine("\nMerging...");
-            Directory.CreateDirectory(@"TempSmali\Merged");
+            //Directory.CreateDirectory(@"TempSmali\Merged");
+
+            //foreach (var app in unpackedAppList)
+            //{
+            //    CopyToMerge(app);
+            //}
+
+            int dexIndex = 0;
 
             foreach (var app in unpackedAppList)
             {
-                CopyToMerge(app);
-            }
-
-            foreach (var app in unpackedAppList)
-            {
-                foreach (var dex in app.CompiledDexPaths)
+                foreach (var dex in app.BaksmailedDexPaths)
                 {
-                    CopyDexToMerge(dex);
+                    ++dexIndex;
+
+                    if (app != unpackedAppList[0])
+                        CopySmaliDirToMerge(dex, dexIndex);
                 }
             }
 
@@ -231,6 +230,36 @@ namespace StaticSmaliHooker
 
         static void CreateFinalPackage(string name)
         {
+            var app = unpackedAppList[0];
+            string jarName = Path.GetFileNameWithoutExtension(app.OriginalJarPath);
+            string targetPath = string.Format(@"TempSmali\Unpacked\{0}\", jarName);
+            targetPath = Path.GetFullPath(targetPath);
+
+            name = Path.GetFullPath(name);
+
+            if (File.Exists(name))
+            {
+                Console.WriteLine("   Removing Existing: {0}", name);
+                File.Delete(name);
+            }
+
+            Console.WriteLine("   Creating Package: {0}", name);
+            Console.WriteLine();
+
+            var processInfo = new ProcessStartInfo(Path.GetFullPath("apktool.bat"), 
+                string.Format(@"b -o {0} {1}", name, targetPath))
+            {
+                //CreateNoWindow = true,
+                UseShellExecute = false,
+            };
+
+            Process.Start(processInfo).WaitForExit();
+
+            Console.WriteLine();
+        }
+
+        static void CreateFinalPackageOld(string name)
+        {
             name = Path.GetFullPath(name);
 
             if (File.Exists(name))
@@ -243,7 +272,20 @@ namespace StaticSmaliHooker
             ZipFile.CreateFromDirectory(@"TempSmali\Merged\", name, CompressionLevel.NoCompression, false);
         }
 
-        static void CopyDexToMerge(string path)
+        static void CopySmaliDirToMerge(string smaliDir, int index)
+        {
+            var app = unpackedAppList[0];
+            string jarName = Path.GetFileNameWithoutExtension(app.OriginalJarPath);
+            string targetPath = string.Format(@"TempSmali\Unpacked\{0}\smali{1}\",
+                jarName, index > 1 ? "_classes" + index : "");
+            targetPath = Path.GetFullPath(targetPath);
+
+            Console.WriteLine("   Merging Smali Code: {0} to: {1}", smaliDir, targetPath);
+
+            DirectoryCopy(smaliDir, targetPath, true, false);
+        }
+
+        static void CopyDexToMergeOld(string path)
         {
             string targetPath = string.Format(@"TempSmali\Merged\{0}", Path.GetFileName(path));
             targetPath = Path.GetFullPath(targetPath);
@@ -389,6 +431,36 @@ namespace StaticSmaliHooker
         }
 
         static void UnpackJar(UnpackedApp app)
+        {
+            string jarName = Path.GetFileNameWithoutExtension(app.OriginalJarPath);
+            string targetPath = string.Format(@"TempSmali\Unpacked\{0}\", jarName);
+            targetPath = Path.GetFullPath(targetPath);
+
+            Console.WriteLine("   Unpacking: {0} to: {1}", app.OriginalJarPath, targetPath);
+            Console.WriteLine();
+
+            var processInfo = new ProcessStartInfo(Path.GetFullPath("apktool.bat"),
+                string.Format(@"d -f -o {0} {1}", targetPath, app.OriginalJarPath))
+            {
+                //CreateNoWindow = true,
+                UseShellExecute = false,
+            };
+
+            Process.Start(processInfo).WaitForExit();
+
+            Console.WriteLine();
+
+            app.UnpackedPath = targetPath;
+
+            foreach (var smaliFolder in Directory.EnumerateDirectories(targetPath, "smali*"))
+            {
+                Console.WriteLine("      Found Smali: {0}", smaliFolder);
+
+                app.BaksmailedDexPaths.Add(smaliFolder);
+            }
+        }
+
+        static void UnpackJarOld(UnpackedApp app)
         {
             string jarName = Path.GetFileNameWithoutExtension(app.OriginalJarPath);
             string targetPath = string.Format(@"TempSmali\Unpacked\{0}\", jarName);

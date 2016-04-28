@@ -24,7 +24,11 @@ namespace StaticSmaliHooker
         public int AllocatedRegisters { get; private set; }
         public string RawParameterLine { get; private set; }
 
+        public string OriginalHeaderLine { get; private set; }
+
         string prologueSource;
+        MethodToHook hookBefore;
+        MethodToHook hookAfter;
 
         public SmaliMethod(SmaliClass parentClass)
         {
@@ -49,6 +53,252 @@ namespace StaticSmaliHooker
             }
 
             return string.Format("{0} ({1}) : {2}", MethodName, sb.ToString(), ReturnType);
+        }
+
+        public void AddHookBefore(MethodToHook hook)
+        {
+            IsPatched = true;
+            hookBefore = hook;
+        }
+
+        public void AddHookAfter(MethodToHook hook)
+        {
+            IsPatched = true;
+            hookAfter = hook;
+        }
+
+        string GenerateHookMethod()
+        {
+            StringBuilder sb = new StringBuilder();
+
+            int extendedRegisters = 4 + ParameterTypes.Count;
+
+            string modifiedPrologue = prologueSource
+                .Replace(
+                string.Format(".registers {0}", OriginalAllocatedRegisters),
+                string.Format(".registers {0}", extendedRegisters));
+
+            sb.AppendLine(modifiedPrologue);
+
+            if (hookBefore != null)
+            {
+                sb.AppendLine("new-instance v0, Lcom/xquadplaystatic/MethodHookParam;");
+                sb.AppendLine("invoke-direct {v0}, Lcom/xquadplaystatic/MethodHookParam;-><init>()V");
+
+                if (!IsStatic)
+                    sb.AppendLine("iput-object p0, v0, Lcom/xquadplaystatic/MethodHookParam;->thisObject:Ljava/lang/Object;");
+
+                if (ParameterTypes.Count > 0)
+                {
+                    sb.AppendLine("const v1, 0x" + ParameterTypes.Count.ToString("x"));
+                    sb.AppendLine("new-array v1, v1, [Ljava/lang/Object;");
+                    sb.AppendLine("iput-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+
+                    for (int n = 0; n < ParameterTypes.Count; ++n)
+                    {
+                        string paramType = ParameterTypes[n];
+                        string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
+
+                        if (!IsObjectTypeTrueObject(paramType))
+                            PackPrimitiveValue(sb, paramType, paramRegister);
+
+                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        sb.AppendLine("const v2, 0x" + n.ToString("x"));
+                        sb.AppendLine(string.Format("aput-object {0}, v1, v2", paramRegister));
+                    }
+                }
+
+                sb.AppendLine(
+                    string.Format("invoke-static {{v0}}, {0}->{1}(Lcom/xquadplaystatic/MethodHookParam;)V",
+                        hookBefore.Interceptor.ParentClass.ClassName,
+                        hookBefore.Interceptor.MethodName));
+
+                if (ParameterTypes.Count > 0)
+                {
+                    for (int n = 0; n < ParameterTypes.Count; ++n)
+                    {
+                        string paramType = ParameterTypes[n];
+                        string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
+
+                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        sb.AppendLine("const v2, 0x" + n.ToString("x"));
+                        sb.AppendLine(string.Format("aget-object {0}, v1, v2", paramRegister));
+
+                        if (!IsObjectTypeTrueObject(paramType))
+                            UnpackPrimitiveValue(sb, paramType, paramRegister);
+                    }
+                }
+
+                sb.AppendLine("iget-boolean v1, v0, Lcom/xquadplaystatic/MethodHookParam;->returnEarly:Z");
+                sb.AppendLine("if-eqz v1, :cond_normal_run");
+
+                if (ReturnType == "V")
+                {
+                    sb.AppendLine("return-void");
+                }
+                else if (IsObjectTypeTrueObject(ReturnType))
+                {
+                    sb.AppendLine("invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                    sb.AppendLine("move-result-object v1");
+                    sb.AppendLine(string.Format("check-cast v1, {0}", ReturnType));
+                    sb.AppendLine("return-object v1");
+                }
+                else
+                {
+                    sb.AppendLine("invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                    sb.AppendLine("move-result-object v1");
+                    UnpackPrimitiveValue(sb, ReturnType, "v1");
+                    sb.AppendLine("return v1");
+                }
+
+                sb.AppendLine(":cond_normal_run");
+            }
+
+            sb.AppendLine();
+            if (IsStatic)
+            {
+                if (ParameterTypes.Count > 1)
+                {
+                    sb.AppendLine(
+                        string.Format("invoke-static/range {{p0..{4}}}, {0}->{1}({2}){3}",
+                        ParentClass.ClassName,
+                        GetHookedMethodName(),
+                        RawParameterLine,
+                        ReturnType,
+                        "p" + (ParameterTypes.Count - 1)));
+                }
+                else if (ParameterTypes.Count == 1)
+                {
+                    sb.AppendLine(
+                        string.Format("invoke-static {{p0}}, {0}->{1}({2}){3}",
+                        ParentClass.ClassName,
+                        GetHookedMethodName(),
+                        RawParameterLine,
+                        ReturnType));
+                }
+                else
+                {
+                    sb.AppendLine(
+                        string.Format("invoke-static {{}}, {0}->{1}({2}){3}",
+                        ParentClass.ClassName,
+                        GetHookedMethodName(),
+                        RawParameterLine,
+                        ReturnType));
+                }
+            }
+            else
+            {
+                if (ParameterTypes.Count == 0)
+                {
+                    sb.AppendLine(
+                        string.Format("invoke-virtual {{p0}}, {0}->{1}({2}){3}",
+                        ParentClass.ClassName,
+                        GetHookedMethodName(),
+                        RawParameterLine,
+                        ReturnType));
+                }
+                else
+                {
+                    sb.AppendLine(
+                        string.Format("invoke-virtual/range {{p0..{4}}}, {0}->{1}({2}){3}",
+                        ParentClass.ClassName,
+                        GetHookedMethodName(),
+                        RawParameterLine,
+                        ReturnType,
+                        "p" + (ParameterTypes.Count)));
+                }
+            }
+            sb.AppendLine();
+
+            if (ReturnType != "V")
+            {
+                if (IsObjectTypeTrueObject(ReturnType))
+                    sb.AppendLine("move-result-object v1");
+                else
+                    sb.AppendLine("move-result v1");
+            }
+
+            if (hookAfter == null)
+            {
+                if (ReturnType == "V")
+                {
+                    sb.AppendLine("return-void");
+                }
+                else if (IsObjectTypeTrueObject(ReturnType))
+                {
+                    sb.AppendLine("return-object v1");
+                }
+                else
+                {
+                    sb.AppendLine("return v1");
+                }
+            }
+            else
+            {
+                sb.AppendLine("new-instance v0, Lcom/xquadplaystatic/MethodHookParam;");
+                sb.AppendLine("invoke-direct {v0}, Lcom/xquadplaystatic/MethodHookParam;-><init>()V");
+
+                if (!IsStatic)
+                    sb.AppendLine("iput-object p0, v0, Lcom/xquadplaystatic/MethodHookParam;->thisObject:Ljava/lang/Object;");
+
+                if (ReturnType != "V")
+                    sb.AppendLine("invoke-virtual {v0, v1}, Lcom/xquadplaystatic/MethodHookParam;->setResult(Ljava/lang/Object;)V");
+
+                if (ParameterTypes.Count > 0)
+                {
+                    sb.AppendLine("const v1, 0x" + ParameterTypes.Count.ToString("x"));
+                    sb.AppendLine("new-array v1, v1, [Ljava/lang/Object;");
+                    sb.AppendLine("iput-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+
+                    for (int n = 0; n < ParameterTypes.Count; ++n)
+                    {
+                        string paramType = ParameterTypes[n];
+                        string paramRegister = "p" + (n + (IsStatic ? 0 : 1));
+
+                        if (!IsObjectTypeTrueObject(paramType))
+                            PackPrimitiveValue(sb, paramType, paramRegister);
+
+                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        sb.AppendLine("const v2, 0x" + n.ToString("x"));
+                        sb.AppendLine(string.Format("aput-object {0}, v1, v2", paramRegister));
+                    }
+                }
+
+                sb.AppendLine(
+                    string.Format("invoke-static {{v0}}, {0}->{1}(Lcom/xquadplaystatic/MethodHookParam;)V",
+                    hookAfter.Interceptor.ParentClass.ClassName,
+                    hookAfter.Interceptor.MethodName));
+
+                if (ReturnType == "V")
+                {
+                    sb.AppendLine("return-void");
+                }
+                else if (IsObjectTypeTrueObject(ReturnType))
+                {
+                    sb.AppendLine("invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                    sb.AppendLine("move-result-object v1");
+                    sb.AppendLine(string.Format("check-cast v1, {0}", ReturnType));
+                    sb.AppendLine("return-object v1");
+                }
+                else
+                {
+                    sb.AppendLine("invoke-virtual {v0}, Lcom/xquadplaystatic/MethodHookParam;->getResult()Ljava/lang/Object;");
+                    sb.AppendLine("move-result-object v1");
+                    UnpackPrimitiveValue(sb, ReturnType, "v1");
+                    sb.AppendLine("return v1");
+                }
+            }
+
+            sb.AppendLine(".end method");
+
+            return sb.ToString();
+        }
+
+        string GetHookedMethodName()
+        {
+            return (MethodName + "_hooked")
+                .Replace("<", "")
+                .Replace(">", "");
         }
 
         string GenerateRandomHookIndex()
@@ -88,7 +338,7 @@ namespace StaticSmaliHooker
             }
         }
 
-        public void PackPrimitiveValue(ref int index, string primitiveType, string register)
+        void PackPrimitiveValue(ref int index, string primitiveType, string register)
         {
             switch (primitiveType)
             {
@@ -124,7 +374,43 @@ namespace StaticSmaliHooker
             throw new Exception("Unsupported primitive value: " + primitiveType);
         }
 
-        public void UnpackPrimitiveValue(ref int index, string primitiveType, string register)
+        void PackPrimitiveValue(StringBuilder sb, string primitiveType, string register)
+        {
+            switch (primitiveType)
+            {
+                case "I":
+                    {
+                        sb.AppendLine(
+                            string.Format("invoke-static {{{0}}}, Ljava/lang/Integer;->valueOf(I)Ljava/lang/Integer;", register));
+                        sb.AppendLine(
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
+                case "Z":
+                    {
+                        sb.AppendLine(
+                            string.Format("invoke-static {{{0}}}, Ljava/lang/Boolean;->valueOf(Z)Ljava/lang/Boolean;", register));
+                        sb.AppendLine(
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
+                case "B":
+                    {
+                        sb.AppendLine(
+                            string.Format("invoke-static {{{0}}}, Ljava/lang/Byte;->valueOf(B)Ljava/lang/Byte;", register));
+                        sb.AppendLine(
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
+            }
+
+            throw new Exception("Unsupported primitive value: " + primitiveType);
+        }
+
+        void UnpackPrimitiveValue(ref int index, string primitiveType, string register)
         {
             switch (primitiveType)
             {
@@ -166,7 +452,49 @@ namespace StaticSmaliHooker
             throw new Exception("Unsupported primitive value: " + primitiveType);
         }
 
-        public void AddHookBefore(MethodToHook hook)
+        void UnpackPrimitiveValue(StringBuilder sb, string primitiveType, string register)
+        {
+            switch (primitiveType)
+            {
+                case "I":
+                    {
+                        sb.AppendLine(
+                            string.Format("check-cast {0}, Ljava/lang/Integer;", register));
+                        sb.AppendLine(
+                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Integer;->intValue()I", register));
+                        sb.AppendLine(
+                            string.Format("move-result {0}", register));
+
+                        return;
+                    }
+                case "Z":
+                    {
+                        sb.AppendLine(
+                            string.Format("check-cast {0}, Ljava/lang/Boolean;", register));
+                        sb.AppendLine(
+                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Boolean;->booleanValue()Z", register));
+                        sb.AppendLine(
+                            string.Format("move-result {0}", register));
+
+                        return;
+                    }
+                case "B":
+                    {
+                        sb.AppendLine(
+                             string.Format("check-cast {0}, Ljava/lang/Byte;", register));
+                        sb.AppendLine(
+                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Byte;->byteValue()B", register));
+                        sb.AppendLine(
+                            string.Format("move-result {0}", register));
+
+                        return;
+                    }
+            }
+
+            throw new Exception("Unsupported primitive value: " + primitiveType);
+        }
+
+        public void AddHookBeforeOld(MethodToHook hook)
         {
             IsPatched = true;
 
@@ -287,7 +615,7 @@ namespace StaticSmaliHooker
             }
         }
 
-        public void AddHookAfter(MethodToHook hook)
+        public void AddHookAfterOld(MethodToHook hook)
         {
             IsPatched = true;
 
@@ -360,34 +688,37 @@ namespace StaticSmaliHooker
             Console.WriteLine();
         }
 
-        bool calledAlready;
-
         public string GetModifiedCode()
         {
-            //if (calledAlready)
-            //    throw new Exception("Can only be called once!");
-            //calledAlready = true;
-
-            //AddParameterMirroringCode();
-
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("#modified");
 
-            int extendedRegisters = OriginalAllocatedRegisters + 4 + ParameterTypes.Count;
+            //int extendedRegisters = OriginalAllocatedRegisters + 4 + ParameterTypes.Count;
 
-            string modifiedPrologue = prologueSource
-                .Replace(
-                string.Format(".registers {0}", OriginalAllocatedRegisters),
-                string.Format(".registers {0}", extendedRegisters));
+            //string modifiedPrologue = prologueSource
+            //    .Replace(
+            //    string.Format(".registers {0}", OriginalAllocatedRegisters),
+            //    string.Format(".registers {0}", extendedRegisters));
 
-            sb.AppendLine(modifiedPrologue);
+            //sb.AppendLine(modifiedPrologue);
 
-            foreach (var ins in Instructions)
-            {
-                sb.AppendLine("    " + ins);
-            }
+            //foreach (var ins in Instructions)
+            //{
+            //    sb.AppendLine("    " + ins);
+            //}
 
-            sb.AppendLine(".end method");
+            //sb.AppendLine(".end method");
+
+            sb.AppendLine(GenerateHookMethod());
+            sb.AppendLine();
+
+            string modifiedHeaderLine = OriginalHeaderLine
+                .Replace(MethodName, GetHookedMethodName())
+                .Replace("constructor", "");
+
+            sb.AppendLine(OriginalSource
+                .Replace(OriginalHeaderLine, modifiedHeaderLine));
+
             sb.AppendLine("#modified");
 
             return sb.ToString();
@@ -490,6 +821,8 @@ namespace StaticSmaliHooker
 
         void ParseHeaderLine(string header)
         {
+            OriginalHeaderLine = header;
+
             IsStatic = header.Contains(" static "); //whitespaces so we get no fake positives from method name
             IsConstructor = header.Contains(" constructor ");
 

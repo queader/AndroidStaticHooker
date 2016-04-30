@@ -115,7 +115,7 @@ namespace StaticSmaliHooker
                         if (!IsObjectTypeTrueObject(paramType))
                             PackPrimitiveValue(sb, paramType, paramRegister);
 
-                        sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
                         sb.AppendLine("const v2, 0x" + n.ToString("x"));
                         sb.AppendLine(string.Format("aput-object {0}, v1, v2", paramRegister));
 
@@ -130,13 +130,15 @@ namespace StaticSmaliHooker
 
                 if (ParameterTypes.Count > 0)
                 {
+                    sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+
                     int currentParamRegister = (IsStatic ? 0 : 1);
                     for (int n = 0; n < ParameterTypes.Count; ++n)
                     {
                         string paramType = ParameterTypes[n];
                         string paramRegister = "p" + currentParamRegister;
 
-                        sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
                         sb.AppendLine("const v2, 0x" + n.ToString("x"));
                         sb.AppendLine(string.Format("aget-object {0}, v1, v2", paramRegister));
 
@@ -288,7 +290,7 @@ namespace StaticSmaliHooker
                         if (!IsObjectTypeTrueObject(paramType))
                             PackPrimitiveValue(sb, paramType, paramRegister);
 
-                        sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
+                        //sb.AppendLine("iget-object v1, v0, Lcom/xquadplaystatic/MethodHookParam;->args:[Ljava/lang/Object;");
                         sb.AppendLine("const v2, 0x" + n.ToString("x"));
                         sb.AppendLine(string.Format("aput-object {0}, v1, v2", paramRegister));
 

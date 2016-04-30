@@ -405,7 +405,16 @@ namespace StaticSmaliHooker
             }
 
             Console.WriteLine("   Creating Package: {0}", name);
-            ZipFile.CreateFromDirectory(@"TempSmali\Merged\", name, CompressionLevel.NoCompression, false);
+            //ZipFile.CreateFromDirectory(@"TempSmali\Merged\", name, CompressionLevel.Fastest, false);
+
+            var processInfo = new ProcessStartInfo(Path.GetFullPath(@"7zip\7za.exe"),
+               string.Format(@"a -tzip {0} .\TempSmali\Merged\*", name))
+            {
+                //CreateNoWindow = true,
+                UseShellExecute = false,
+            };
+
+            Process.Start(processInfo).WaitForExit();
         }
 
         static void CopySmaliDirToMerge(string smaliDir, int index)

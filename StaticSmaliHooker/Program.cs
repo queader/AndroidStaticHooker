@@ -40,19 +40,156 @@ namespace StaticSmaliHooker
 
         static void Main(string[] args)
         {
-            Console.WriteLine("Usage <app1> [-dex-only] <app2> ...");
+            Console.WriteLine("Usage [-old-pkg, -single-dex] <app1> [-dex-only] <app2> ...");
 
+            if (args[0] == "-old-pkg")
+            {
+                Console.WriteLine("\nUsing Old Packaging...");
+                RunOldPatchRoutine(args);
+            }
+            else
+            {
+                Console.WriteLine("\nUsing Apktool Packaging...");
+                RunNewPatchRoutine(args);
+            }
+        }
+
+        static void RunOldPatchRoutine(string[] args)
+        {
             bool onlyCopyDexFlag = false;
 
             foreach (var arg in args)
             {
-                if (arg == "-dex-only")
+                if (arg.StartsWith("-"))
                 {
-                    onlyCopyDexFlag = true;
+                    if (arg == "-dex-only")
+                    {
+                        onlyCopyDexFlag = true;
+                    }
+                    else if (arg == "-single-dex")
+                    {
+                        singleDex = true;
+                    }
                 }
-                else if (arg == "-single-dex")
+                else
                 {
-                    singleDex = true;
+                    string lib = Path.GetFullPath(arg);
+                    unpackedAppList.Add(new UnpackedApp
+                    {
+                        OriginalJarPath = lib,
+                        OnlyCopyDex = onlyCopyDexFlag,
+                    });
+
+                    onlyCopyDexFlag = false;
+                }
+            }
+
+            Console.WriteLine("\nCleaning...");
+            CleanDirectory(@"TempSmali");
+
+            Console.WriteLine("\nUnpacking...");
+            Directory.CreateDirectory(@"TempSmali");
+            Directory.CreateDirectory(@"TempSmali\Unpacked");
+
+            foreach (var app in unpackedAppList)
+                UnpackJarOld(app);
+
+            Console.WriteLine("\nBaksmaling...");
+            Directory.CreateDirectory(@"TempSmali\Baksmalied");
+
+            foreach (var app in unpackedAppList)
+            {
+                foreach (string dexFile in Directory.EnumerateFiles(app.UnpackedPath, "*.dex"))
+                {
+                    RunBaksmali(app, dexFile);
+                }
+            }
+
+            Console.WriteLine("\nParsing...");
+
+            foreach (var app in unpackedAppList)
+            {
+                foreach (string baksmailedDex in app.BaksmailedDexPaths)
+                {
+                    ParseClasses(baksmailedDex);
+                }
+            }
+
+            Console.WriteLine("\nHooking...");
+
+            foreach (var hook in methodsToHook)
+            {
+                ExecuteHook(hook);
+            }
+
+            Console.WriteLine("\nGenerating Code...");
+
+            foreach (var dirty in dirtyClasses)
+            {
+                GenerateCodeForDirtyClass(dirty);
+            }
+
+            Console.WriteLine("\nSmaling...");
+            Directory.CreateDirectory(@"TempSmali\Smalied");
+
+            int dexindex = 1;
+
+            foreach (var app in unpackedAppList)
+            {
+                foreach (string baksmailedDex in app.BaksmailedDexPaths)
+                {
+                    RunSmali(app, baksmailedDex, dexindex);
+                    ++dexindex;
+
+                    if (singleDex)
+                        break;
+                }
+
+                if (singleDex)
+                    break;
+            }
+
+            Console.WriteLine("\nMerging...");
+            Directory.CreateDirectory(@"TempSmali\Merged");
+
+            foreach (var app in unpackedAppList)
+            {
+                CopyToMerge(app);
+            }
+
+            foreach (var app in unpackedAppList)
+            {
+                foreach (var dex in app.CompiledDexPaths)
+                {
+                    CopyDexToMergeOld(dex);
+                }
+            }
+
+            Console.WriteLine("\nPackaging...");
+
+            string finalName = string.Format("{0}-hooked{1}",
+                Path.GetFileNameWithoutExtension(unpackedAppList[0].OriginalJarPath),
+                Path.GetExtension(unpackedAppList[0].OriginalJarPath));
+
+            CreateFinalPackageOld(finalName);
+        }
+
+        static void RunNewPatchRoutine(string[] args)
+        {
+            bool onlyCopyDexFlag = false;
+
+            foreach (var arg in args)
+            {
+                if (arg.StartsWith("-"))
+                {
+                    if (arg == "-dex-only")
+                    {
+                        onlyCopyDexFlag = true;
+                    }
+                    else if (arg == "-single-dex")
+                    {
+                        singleDex = true;
+                    }
                 }
                 else
                 {
@@ -160,7 +297,6 @@ namespace StaticSmaliHooker
                 Path.GetExtension(unpackedAppList[0].OriginalJarPath));
 
             CreateFinalPackage(finalName);
-
         }
 
         static void GenerateCodeForDirtyClass(SmaliClass clazz)

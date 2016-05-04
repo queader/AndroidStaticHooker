@@ -92,6 +92,11 @@ namespace StaticSmaliHooker
 
             sb.AppendLine(modifiedPrologue);
 
+            if (IsConstructor && !IsStatic)
+            {
+                sb.AppendLine("invoke-direct {p0}, Ljava/lang/Object;-><init>()V");
+            }
+
             if (hookBefore != null)
             {
                 sb.AppendLine("new-instance v0, Lcom/xquadplaystatic/MethodHookParam;");
@@ -781,9 +786,13 @@ namespace StaticSmaliHooker
                 .Replace(MethodName, GetHookedMethodName())
                 .Replace("constructor", "");
 
-            sb.AppendLine(OriginalSource
-                .Replace(OriginalHeaderLine, modifiedHeaderLine));
+            string originalSource = OriginalSource
+                .Replace(OriginalHeaderLine, modifiedHeaderLine);
 
+            if (IsConstructor && !IsStatic)
+                originalSource = originalSource.Replace("invoke-direct {p0}, Ljava/lang/Object;-><init>()V", "");
+
+            sb.AppendLine(originalSource);
             sb.AppendLine("#modified");
 
             return sb.ToString();

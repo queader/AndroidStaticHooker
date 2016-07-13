@@ -456,6 +456,15 @@ namespace StaticSmaliHooker
 
                         return;
                     }
+                case "F":
+                    {
+                        sb.AppendLine(
+                           string.Format("invoke-static {{{0}}}, Ljava/lang/Float;->valueOf(F)Ljava/lang/Float;", register));
+                        sb.AppendLine(
+                            string.Format("move-result-object {0}", register));
+
+                        return;
+                    }
             }
 
             throw new Exception("Unsupported primitive value: " + primitiveType);
@@ -551,6 +560,20 @@ namespace StaticSmaliHooker
                            string.Format("invoke-virtual {{{0}}}, Ljava/lang/Long;->longValue()J", register));
                         sb.AppendLine(
                             string.Format("move-result-wide {0}", register));
+
+                        return;
+                    }
+                case "F":
+                    {
+                        int regIndex = int.Parse(register.Substring(1));
+                        string nextReg = register.Substring(0, 1) + (regIndex + 1);
+
+                        sb.AppendLine(
+                            string.Format("check-cast {0}, Ljava/lang/Float;", register));
+                        sb.AppendLine(
+                           string.Format("invoke-virtual {{{0}}}, Ljava/lang/Float;->floatValue()F", register));
+                        sb.AppendLine(
+                            string.Format("move-result {0}", register));
 
                         return;
                     }

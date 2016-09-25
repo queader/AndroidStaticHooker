@@ -784,7 +784,8 @@ namespace StaticSmaliHooker
         public string GetModifiedCode()
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("#modified");
+            sb.AppendLine("#modified-start");
+            sb.AppendLine();
 
             //int extendedRegisters = OriginalAllocatedRegisters + 4 + ParameterTypes.Count;
 
@@ -816,7 +817,7 @@ namespace StaticSmaliHooker
                 originalSource = originalSource.Replace("invoke-direct {p0}, Ljava/lang/Object;-><init>()V", "");
 
             sb.AppendLine(originalSource);
-            sb.AppendLine("#modified");
+            sb.AppendLine("#modified-end");
 
             return sb.ToString();
         }
